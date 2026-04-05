@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Build output
+client/dist/
+
+# Data, database & uploads (runtime data, not source)
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Environment secrets
+.env
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
+
+# Docker build cache
+.dockerignore
