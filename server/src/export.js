@@ -47,14 +47,24 @@ function loadImageDataMap(jobData) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function getLogoSvg() {
-  const p = path.join(__dirname, '../../client/public/logo.svg');
-  try {
-    return fs.readFileSync(p, 'utf8')
-      .replace(/<\?xml[^>]*\?>\s*/g, '')
-      .replace(/<!--[\s\S]*?-->/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-  } catch { return ''; }
+  const candidates = [
+    path.join(__dirname, '../../client/dist/logo.svg'),   // production (Docker)
+    path.join(__dirname, '../../client/public/logo.svg'), // development
+  ];
+  for (const p of candidates) {
+    try {
+      const raw = fs.readFileSync(p, 'utf8');
+      if (!raw) continue;
+      return raw
+        .replace(/<\?xml[^>]*\?>\s*/g, '')
+        .replace(/<!--[\s\S]*?-->/g, '')
+        .replace(/<defs>[\s\S]*?<\/defs>/g, '')   // remove <style>.st0{fill:#fff}</style>
+        .replace(/class="st0"/g, 'fill="#ffffff"') // inline fill so it survives print
+        .replace(/\s+/g, ' ')
+        .trim();
+    } catch { /* try next */ }
+  }
+  return '';
 }
 
 async function generateQrDataUrl(url) {
@@ -320,51 +330,131 @@ code{font-family:'SF Mono','Fira Code',monospace;font-size:0.82em;background:rgb
 
 /* ── PRINT ───────────────────────────────────────────────────────────────── */
 @media print{
-  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  /* Force ALL elements to print backgrounds exactly */
+  *{
+    -webkit-print-color-adjust:exact!important;
+    print-color-adjust:exact!important;
+    color-adjust:exact!important;
+  }
+  /* Light defaults for content area */
   :root{
-    --bg:#fff;--surf:#fff;--surf2:#f8fafc;
-    --bdr:rgba(0,0,0,.1);--bdr2:rgba(0,0,0,.15);
+    --bg:#fff;--hdr:#091726;--surf:#fff;--surf2:#f8fafc;
+    --bdr:#dde3ea;--bdr2:#c8d0da;
     --tx:#1e293b;--txm:#475569;--txd:#64748b;
     --acc:#2563eb;--accl:#1d4ed8;
+    --r:8px;--rlg:12px;--rsm:5px;
   }
-  html,body{background:#fff!important}
-  .action-bar,.no-print{display:none!important}
-  /* Keep header + cover + footer dark — brand identity */
-  .site-header{background:#091726!important}
-  .site-header .sh-badge{display:none}
-  .cover{background:#091726!important;color:#fff!important;page-break-after:always;break-after:page}
-  .cover .job-title,.cover .mc .mc-v{color:#fff!important}
-  .cover .mc{background:rgba(255,255,255,.06)!important;border-color:rgba(255,255,255,.12)!important}
-  .cover .mc .mc-l{color:rgba(255,255,255,.45)!important}
-  .cover .qr-box{background:rgba(255,255,255,.06)!important;border-color:rgba(255,255,255,.12)!important}
-  .cover .qr-lbl,.cover .share-url{color:rgba(255,255,255,.65)!important}
-  .stats-bar{background:#f1f5f9!important;border-bottom:1px solid #e2e8f0!important}
-  .stat-pill{background:#fff!important;border-color:#e2e8f0!important}
+  html,body{background:#fff!important;margin:0;padding:0}
+  .action-bar,.no-print,.lightbox{display:none!important}
+
+  /* ── Dark header — preserve brand ──────────────────────── */
+  .site-header{
+    background-color:#091726!important;
+    -webkit-print-color-adjust:exact!important;
+    print-color-adjust:exact!important;
+    padding:1rem 0!important;
+    border-bottom:none!important;
+  }
+  .sh-logo svg{height:30px!important;width:auto!important;display:block!important}
+  .sh-logo svg path,.sh-logo svg g{fill:#ffffff!important}
+  .sh-badge{display:none!important}
+
+  /* ── Dark cover — preserves brand, page break after ───── */
+  .cover{
+    background-color:#091726!important;
+    -webkit-print-color-adjust:exact!important;
+    print-color-adjust:exact!important;
+    color:#ffffff!important;
+    padding:1.75rem 0 1.5rem!important;
+    border-bottom:none!important;
+    page-break-after:always;
+    break-after:page;
+  }
+  .cover .job-title{color:#ffffff!important;font-size:1.6rem!important}
+  .cover .status-pill{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  /* Replace rgba() with solid equivalents so they print */
+  .cover .mc{background-color:#132a4a!important;border:1px solid #1e3d5c!important}
+  .cover .mc .mc-l{color:#7aadcc!important}
+  .cover .mc .mc-v{color:#ffffff!important}
+  .cover .qr-box{background-color:#132a4a!important;border:1px solid #1e3d5c!important}
+  .cover .qr-lbl{color:#9bbdd0!important}
+  .cover .share-url{background-color:#0d2238!important;color:#60a5fa!important;border-color:#1e3d5c!important}
+  .cover-grid{display:flex!important;gap:1.5rem!important;align-items:flex-start!important}
+
+  /* ── Stats bar ──────────────────────────────────────────── */
+  .stats-bar{background-color:#f1f5f9!important;border-bottom:2px solid #dde3ea!important;padding:.6rem 0!important}
+  .stat-pill{background-color:#ffffff!important;border:1px solid #dde3ea!important;color:#475569!important}
   .stat-pill .sv{color:#1d4ed8!important}
   .stat-cats{color:#475569!important}
-  .toc-section{background:#f8fafc!important;border:1px solid #e2e8f0!important;page-break-inside:avoid;break-inside:avoid}
-  .toc-item{color:#475569!important}
-  .toc-num{background:#e2e8f0!important;color:#64748b!important}
+
+  /* ── Main content ───────────────────────────────────────── */
+  .main{padding:1.5rem 0 2rem!important}
+  .section-hd{color:#374151!important;border-bottom-color:#dde3ea!important}
+  .shcount{background-color:#2563eb!important;color:#fff!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+
+  /* ── TOC ────────────────────────────────────────────────── */
+  .toc-section{background-color:#f8fafc!important;border:1px solid #dde3ea!important;page-break-inside:avoid;break-inside:avoid}
+  .toc-item{color:#374151!important;border-color:transparent!important}
+  .toc-num{background-color:#e2e8f0!important;color:#475569!important}
   .toc-model{color:#94a3b8!important}
-  .notes-section{background:#f8fafc!important;border-color:#e2e8f0!important;border-left-color:#2563eb!important}
+
+  /* ── Notes ──────────────────────────────────────────────── */
+  .notes-section{background-color:#f8fafc!important;border-color:#dde3ea!important;border-left:3px solid #2563eb!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   .notes-text{color:#1e293b!important}
-  .device-card{background:#fff!important;border:1px solid #e2e8f0!important;box-shadow:0 1px 4px rgba(0,0,0,.06)!important;page-break-inside:avoid;break-inside:avoid;margin-bottom:.85rem}
-  .device-card:hover{border-color:#e2e8f0!important}
-  .dcard-title h3{color:#1e293b!important}
+
+  /* ── Device cards ───────────────────────────────────────── */
+  .devices-list{gap:.75rem!important}
+  .device-card{
+    background-color:#ffffff!important;
+    border:1px solid #dde3ea!important;
+    box-shadow:none!important;
+    page-break-inside:avoid;
+    break-inside:avoid;
+    margin-bottom:.5rem!important;
+    padding:1rem!important;
+  }
+  .device-card:hover{border-color:#dde3ea!important;transform:none!important}
+  .dcard-title h3{color:#1e293b!important;font-size:.95rem!important}
   .dmodel-tag{color:#2563eb!important}
-  .dnum-badge{background:#f1f5f9!important;color:#64748b!important;border-color:#e2e8f0!important}
+  .dnum-badge{background-color:#f1f5f9!important;color:#64748b!important;border-color:#dde3ea!important}
   .dloc-pill{color:#475569!important}
-  .dnotes{background:#f8fafc!important;border-color:#e2e8f0!important;border-left-color:#2563eb!important;color:#1e293b!important}
+  .dnotes{
+    background-color:#f8fafc!important;
+    border-color:#dde3ea!important;
+    border-left:3px solid #2563eb!important;
+    -webkit-print-color-adjust:exact!important;
+    print-color-adjust:exact!important;
+    color:#1e293b!important;
+  }
   .no-photos{color:#94a3b8!important}
-  .photos-grid{grid-template-columns:repeat(3,1fr)!important;gap:.4rem!important}
-  .photo-thumb{border-color:#e2e8f0!important;page-break-inside:avoid;break-inside:avoid}
+
+  /* ── Photos ─────────────────────────────────────────────── */
+  .photos-grid{display:grid!important;grid-template-columns:repeat(3,1fr)!important;gap:.35rem!important;margin-top:.6rem!important}
+  .photo-thumb{
+    background-color:#f8fafc!important;
+    border:1px solid #dde3ea!important;
+    page-break-inside:avoid;
+    break-inside:avoid;
+  }
   .photo-thumb:hover{transform:none!important}
-  .thumb-cap{color:#64748b!important}
-  .lightbox{display:none!important}
-  .site-footer{background:#091726!important}
-  .footer-logo svg{opacity:.9!important}
-  .footer-txt{color:rgba(255,255,255,.5)!important}
-  @page{margin:.65in .75in;size:letter}
+  .photo-thumb img{width:100%!important;height:auto!important;max-height:160px!important;object-fit:cover!important}
+  .thumb-cap{color:#64748b!important;font-size:.62rem!important}
+
+  /* ── Dark footer — preserve brand ──────────────────────── */
+  .site-footer{
+    background-color:#091726!important;
+    -webkit-print-color-adjust:exact!important;
+    print-color-adjust:exact!important;
+    margin-top:1.5rem!important;
+    padding:1rem 0!important;
+    border-top:none!important;
+  }
+  .footer-logo svg{height:20px!important;width:auto!important;opacity:1!important;display:block!important}
+  .footer-logo svg path,.footer-logo svg g{fill:#ffffff!important}
+  .footer-txt{color:#94a3b8!important}
+  .footer-txt a{color:#60a5fa!important}
+
+  @page{margin:.65in .75in;size:letter portrait}
 }
 
 @media(max-width:600px){
