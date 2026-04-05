@@ -47,7 +47,14 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
+        // Never intercept /share/* — these are server-rendered HTML reports
+        navigateFallbackDenylist: [/^\/share\//],
         runtimeCaching: [
+          {
+            // Belt-and-suspenders: always fetch /share/* from network
+            urlPattern: /^\/share\//,
+            handler: 'NetworkOnly',
+          },
           {
             urlPattern: /^\/api\//,
             handler: 'NetworkFirst',
