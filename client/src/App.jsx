@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import Layout from './components/Layout';
+import InstallBanner from './components/InstallBanner';
+import UpdateBanner from './components/UpdateBanner';
 import Dashboard from './pages/Dashboard';
 import JobDetail from './pages/JobDetail';
 import NewJob from './pages/NewJob';
@@ -21,6 +23,8 @@ export default function App() {
           error: { iconTheme: { primary: '#ef4444', secondary: '#0f172a' } },
         }}
       />
+      <UpdateBanner />
+      <InstallBanner />
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Dashboard />} />

@@ -1,10 +1,16 @@
-import { Outlet, NavLink, useLocation } from 'react-router-dom';
-import { Briefcase, Archive, Settings, Wifi, WifiOff } from 'lucide-react';
+import { Outlet, NavLink } from 'react-router-dom';
+import { Briefcase, Archive, Settings, Wifi, WifiOff, Download } from 'lucide-react';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { useInstallPrompt } from '../hooks/useInstallPrompt';
 
 export default function Layout() {
   const online = useOnlineStatus();
-  const location = useLocation();
+  const { shouldShow, isIOS, install } = useInstallPrompt();
+
+  const handleHeaderInstall = async () => {
+    if (isIOS) return;
+    await install();
+  };
 
   return (
     <div className="flex flex-col min-h-screen min-h-dvh bg-dark">
@@ -16,6 +22,16 @@ export default function Layout() {
             <span className="text-xs font-semibold text-slate-400 tracking-widest uppercase">Install Log</span>
           </div>
           <div className="flex items-center gap-2">
+            {shouldShow && !isIOS && (
+              <button
+                onClick={handleHeaderInstall}
+                className="flex items-center gap-1.5 text-xs font-semibold text-brand-400 hover:text-brand-300 transition-colors px-2 py-1 rounded-lg hover:bg-brand-500/10"
+                title="Install app"
+              >
+                <Download size={13} />
+                <span className="hidden sm:inline">Install</span>
+              </button>
+            )}
             {online ? (
               <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
                 <Wifi size={13} />
