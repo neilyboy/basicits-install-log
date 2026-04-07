@@ -3,9 +3,10 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Camera, X, Trash2, Edit2, Save, Plus, Image,
-  ChevronDown, MapPin, FileText, ZoomIn
+  ChevronDown, MapPin, FileText, ZoomIn, Search
 } from 'lucide-react';
 import { getDevice, updateDevice, deleteDevice, uploadPhotos, deletePhoto, updatePhoto, getHardware } from '../api/client';
+import { compressAll } from '../utils/compressImage';
 import toast from 'react-hot-toast';
 
 const DEVICE_TYPES = ['Camera', 'Access Control', 'Environmental', 'Intercom', 'Alarm', 'Viewing Station', 'Guest', 'Networking', 'Other'];
@@ -14,11 +15,14 @@ export default function DeviceDetail() {
   const { jobId, deviceId } = useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const fileRef = useRef();
+  const cameraRef = useRef();
+  const galleryRef = useRef();
 
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(null);
   const [showModels, setShowModels] = useState(false);
+  const [modelSearch, setModelSearch] = useState('');
+  const [compressing, setCompressing] = useState(false);
   const [lightbox, setLightbox] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [editingCaption, setEditingCaption] = useState(null);
@@ -40,9 +44,23 @@ export default function DeviceDetail() {
   const models = hwData?.models || [];
   const grouped = hwData?.grouped || {};
 
-  const filteredModels = form?.device_type
+  const baseModels = form?.device_type
     ? models.filter(m => m.category === form.device_type)
     : models;
+
+  const filteredModels = modelSearch.trim()
+    ? baseModels.filter(m => {
+        const q = modelSearch.toLowerCase();
+        return m.model_name.toLowerCase().includes(q)
+          || (m.model_number && m.model_number.toLowerCase().includes(q))
+          || (m.brand && m.brand.toLowerCase().includes(q));
+      })
+    : baseModels;
+
+  const searchedGrouped = modelSearch.trim()
+    ? { Results: filteredModels }
+    : (form?.device_type ? { [form.device_type]: filteredModels } : grouped);
+
   const selectedModel = models.find(m => m.id === form?.hardware_model_id);
 
   const saveMut = useMutation({
@@ -103,16 +121,25 @@ export default function DeviceDetail() {
     setEditing(true);
   }
 
-  function handleFileSelect(e) {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    uploadMut.mutate({ files });
+  async function handleFileSelect(e) {
+    const raw = Array.from(e.target.files || []);
+    if (!raw.length) return;
     e.target.value = '';
+    setCompressing(true);
+    try {
+      const compressed = await compressAll(raw);
+      uploadMut.mutate({ files: compressed });
+    } catch {
+      toast.error('Failed to process photos');
+    } finally {
+      setCompressing(false);
+    }
   }
 
   function selectModel(m) {
     setForm(f => ({ ...f, hardware_model_id: m.id, device_type: m.category }));
     setShowModels(false);
+    setModelSearch('');
   }
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -177,27 +204,47 @@ export default function DeviceDetail() {
               <ChevronDown size={16} className="text-slate-500 flex-shrink-0" />
             </button>
             {showModels && (
-              <div className="mt-1 card border border-slate-600 max-h-52 overflow-y-auto">
-                <button
-                  type="button"
-                  className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:bg-surface-2 border-b border-slate-700"
-                  onClick={() => { setForm(f => ({ ...f, hardware_model_id: '' })); setShowModels(false); }}
-                >
-                  — None —
-                </button>
-                {Object.entries(form.device_type ? { [form.device_type]: filteredModels } : grouped).map(([cat, items]) => (
-                  <div key={cat}>
-                    <div className="px-4 py-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider bg-surface-2">{cat}</div>
-                    {items.map(m => (
-                      <button key={m.id} type="button"
-                        className={`w-full text-left px-4 py-2.5 text-sm hover:bg-surface-2 ${m.id === form.hardware_model_id ? 'text-brand-400 bg-brand-500/10' : 'text-slate-200'}`}
-                        onClick={() => selectModel(m)}
-                      >
-                        {m.model_name}{m.model_number && <span className="text-slate-500 ml-1 text-xs">({m.model_number})</span>}
-                      </button>
-                    ))}
+              <div className="mt-1 card border border-slate-600 flex flex-col max-h-64">
+                <div className="px-3 py-2 border-b border-slate-700 flex-shrink-0">
+                  <div className="relative">
+                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                    <input
+                      autoFocus
+                      type="text"
+                      className="input py-1.5 pl-8 pr-3 text-sm"
+                      placeholder="Search models… e.g. 53, dome"
+                      value={modelSearch}
+                      onChange={e => setModelSearch(e.target.value)}
+                    />
                   </div>
-                ))}
+                </div>
+                <div className="overflow-y-auto flex-1">
+                  <button
+                    type="button"
+                    className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:bg-surface-2 border-b border-slate-700"
+                    onClick={() => { setForm(f => ({ ...f, hardware_model_id: '' })); setShowModels(false); setModelSearch(''); }}
+                  >
+                    — None —
+                  </button>
+                  {Object.entries(searchedGrouped).map(([cat, items]) => (
+                    <div key={cat}>
+                      {!modelSearch.trim() && (
+                        <div className="px-4 py-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider bg-surface-2">{cat}</div>
+                      )}
+                      {items.length === 0 && modelSearch.trim() && (
+                        <p className="px-4 py-3 text-sm text-slate-500 italic">No models match "{modelSearch}"</p>
+                      )}
+                      {items.map(m => (
+                        <button key={m.id} type="button"
+                          className={`w-full text-left px-4 py-2.5 text-sm hover:bg-surface-2 ${m.id === form.hardware_model_id ? 'text-brand-400 bg-brand-500/10' : 'text-slate-200'}`}
+                          onClick={() => selectModel(m)}
+                        >
+                          {m.model_name}{m.model_number && <span className="text-slate-500 ml-1 text-xs">({m.model_number})</span>}
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -242,28 +289,37 @@ export default function DeviceDetail() {
 
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
-          Photos ({photos.length})
+          Photos ({photos.length}){(compressing || uploadMut.isPending) && <span className="ml-2 text-xs text-brand-400 normal-case font-normal">{compressing ? 'compressing…' : 'uploading…'}</span>}
         </h2>
-        <button
-          className="btn-secondary text-xs py-2"
-          onClick={() => fileRef.current?.click()}
-          disabled={uploadMut.isPending}
-        >
-          <Camera size={14} />
-          {uploadMut.isPending ? 'Uploading...' : 'Add Photos'}
-        </button>
-        <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileSelect} />
+        <div className="flex gap-1.5">
+          <button className="btn-secondary text-xs py-2" onClick={() => cameraRef.current?.click()} disabled={compressing || uploadMut.isPending}>
+            <Camera size={14} />
+          </button>
+          <button className="btn-secondary text-xs py-2 px-3" onClick={() => galleryRef.current?.click()} disabled={compressing || uploadMut.isPending}>
+            <Image size={14} /> Gallery
+          </button>
+        </div>
+        <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileSelect} />
+        <input ref={galleryRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileSelect} />
       </div>
 
       {photos.length === 0 ? (
-        <button
-          className="w-full card py-10 flex flex-col items-center gap-2 text-slate-500 hover:border-brand-500/50 hover:text-brand-400 transition-colors mb-4"
-          onClick={() => fileRef.current?.click()}
-        >
-          <Camera size={32} />
-          <span className="text-sm">Tap to add photos</span>
-          <span className="text-xs opacity-60">Photos are also saved to your camera roll</span>
-        </button>
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          <button
+            className="card py-8 flex flex-col items-center gap-2 text-slate-500 hover:border-brand-500/50 hover:text-brand-400 transition-colors"
+            onClick={() => cameraRef.current?.click()}
+          >
+            <Camera size={28} />
+            <span className="text-sm">Camera</span>
+          </button>
+          <button
+            className="card py-8 flex flex-col items-center gap-2 text-slate-500 hover:border-brand-500/50 hover:text-brand-400 transition-colors"
+            onClick={() => galleryRef.current?.click()}
+          >
+            <Image size={28} />
+            <span className="text-sm">Gallery</span>
+          </button>
+        </div>
       ) : (
         <div className="grid grid-cols-3 gap-2 mb-4">
           {photos.map((photo, idx) => (
@@ -289,7 +345,7 @@ export default function DeviceDetail() {
             </button>
           ))}
           <button
-            onClick={() => fileRef.current?.click()}
+            onClick={() => galleryRef.current?.click()}
             className="aspect-square rounded-xl border-2 border-dashed border-slate-700 flex flex-col items-center justify-center text-slate-500 hover:border-brand-500 hover:text-brand-400 transition-colors"
           >
             <Plus size={20} />

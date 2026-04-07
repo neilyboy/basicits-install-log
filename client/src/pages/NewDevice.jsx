@@ -1,8 +1,9 @@
 import { useState, useRef } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Camera, X, Image, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Camera, X, Image, ChevronDown, Search } from 'lucide-react';
 import { createDevice, uploadPhotos, getHardware } from '../api/client';
+import { compressAll } from '../utils/compressImage';
 import toast from 'react-hot-toast';
 
 const DEVICE_TYPES = ['Camera', 'Access Control', 'Environmental', 'Intercom', 'Alarm', 'Viewing Station', 'Guest', 'Networking', 'Other'];
@@ -11,28 +12,52 @@ export default function NewDevice() {
   const { id: jobId } = useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const fileRef = useRef();
+  const cameraRef = useRef();
+  const galleryRef = useRef();
 
   const [form, setForm] = useState({ name: '', device_type: '', hardware_model_id: '', location: '', notes: '' });
   const [photos, setPhotos] = useState([]);
   const [showModels, setShowModels] = useState(false);
+  const [modelSearch, setModelSearch] = useState('');
+  const [compressing, setCompressing] = useState(false);
 
   const { data: hwData } = useQuery({ queryKey: ['hardware'], queryFn: getHardware });
   const models = hwData?.models || [];
   const grouped = hwData?.grouped || {};
 
-  const filteredModels = form.device_type
+  const baseModels = form.device_type
     ? models.filter(m => m.category === form.device_type)
     : models;
 
+  const filteredModels = modelSearch.trim()
+    ? baseModels.filter(m => {
+        const q = modelSearch.toLowerCase();
+        return m.model_name.toLowerCase().includes(q)
+          || (m.model_number && m.model_number.toLowerCase().includes(q))
+          || (m.brand && m.brand.toLowerCase().includes(q));
+      })
+    : baseModels;
+
+  const searchedGrouped = modelSearch.trim()
+    ? { Results: filteredModels }
+    : (form.device_type ? { [form.device_type]: filteredModels } : grouped);
+
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
-  function handlePhotoSelect(e) {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    const previews = files.map(f => ({ file: f, url: URL.createObjectURL(f), caption: '' }));
-    setPhotos(p => [...p, ...previews]);
+  async function handlePhotoSelect(e) {
+    const raw = Array.from(e.target.files || []);
+    if (!raw.length) return;
     e.target.value = '';
+    setCompressing(true);
+    try {
+      const compressed = await compressAll(raw);
+      const previews = compressed.map(f => ({ file: f, url: URL.createObjectURL(f), caption: '' }));
+      setPhotos(p => [...p, ...previews]);
+    } catch {
+      toast.error('Failed to process photos');
+    } finally {
+      setCompressing(false);
+    }
   }
 
   function removePhoto(idx) {
@@ -46,6 +71,7 @@ export default function NewDevice() {
       device_type: model.category,
     }));
     setShowModels(false);
+    setModelSearch('');
   }
 
   const selectedModel = models.find(m => m.id === form.hardware_model_id);
@@ -119,34 +145,52 @@ export default function NewDevice() {
             </button>
 
             {showModels && (
-              <div className="mt-1 card border border-slate-600 max-h-60 overflow-y-auto">
-                <button
-                  type="button"
-                  className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:bg-surface-2 border-b border-slate-700"
-                  onClick={() => { setForm(f => ({ ...f, hardware_model_id: '' })); setShowModels(false); }}
-                >
-                  — None —
-                </button>
-                {Object.entries(
-                  (form.device_type ? { [form.device_type]: filteredModels } : grouped)
-                ).map(([cat, items]) => (
-                  <div key={cat}>
-                    <div className="px-4 py-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider bg-surface-2 sticky top-0">
-                      {cat}
-                    </div>
-                    {items.map(m => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        className={`w-full text-left px-4 py-2.5 text-sm hover:bg-surface-2 transition-colors ${m.id === form.hardware_model_id ? 'text-brand-400 bg-brand-500/10' : 'text-slate-200'}`}
-                        onClick={() => selectModel(m)}
-                      >
-                        <span className="font-medium">{m.model_name}</span>
-                        {m.model_number && <span className="text-slate-500 ml-1.5 text-xs">({m.model_number})</span>}
-                      </button>
-                    ))}
+              <div className="mt-1 card border border-slate-600 flex flex-col max-h-72">
+                <div className="px-3 py-2 border-b border-slate-700 flex-shrink-0">
+                  <div className="relative">
+                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                    <input
+                      autoFocus
+                      type="text"
+                      className="input py-1.5 pl-8 pr-3 text-sm"
+                      placeholder="Search models… e.g. 53, dome, CD52"
+                      value={modelSearch}
+                      onChange={e => setModelSearch(e.target.value)}
+                    />
                   </div>
-                ))}
+                </div>
+                <div className="overflow-y-auto flex-1">
+                  <button
+                    type="button"
+                    className="w-full text-left px-4 py-2.5 text-sm text-slate-400 hover:bg-surface-2 border-b border-slate-700"
+                    onClick={() => { setForm(f => ({ ...f, hardware_model_id: '' })); setShowModels(false); setModelSearch(''); }}
+                  >
+                    — None —
+                  </button>
+                  {Object.entries(searchedGrouped).map(([cat, items]) => (
+                    <div key={cat}>
+                      {!modelSearch.trim() && (
+                        <div className="px-4 py-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider bg-surface-2 sticky top-0">
+                          {cat}
+                        </div>
+                      )}
+                      {items.length === 0 && modelSearch.trim() && (
+                        <p className="px-4 py-3 text-sm text-slate-500 italic">No models match "{modelSearch}"</p>
+                      )}
+                      {items.map(m => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          className={`w-full text-left px-4 py-2.5 text-sm hover:bg-surface-2 transition-colors ${m.id === form.hardware_model_id ? 'text-brand-400 bg-brand-500/10' : 'text-slate-200'}`}
+                          onClick={() => selectModel(m)}
+                        >
+                          <span className="font-medium">{m.model_name}</span>
+                          {m.model_number && <span className="text-slate-500 ml-1.5 text-xs">({m.model_number})</span>}
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -164,22 +208,17 @@ export default function NewDevice() {
 
         <div className="card p-4">
           <div className="flex items-center justify-between mb-3">
-            <label className="label mb-0">Photos ({photos.length})</label>
-            <button
-              type="button"
-              className="btn-secondary text-xs py-2"
-              onClick={() => fileRef.current?.click()}
-            >
-              <Camera size={14} /> Take / Add Photos
-            </button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={handlePhotoSelect}
-            />
+            <label className="label mb-0">Photos ({photos.length}){compressing && <span className="ml-2 text-brand-400 normal-case font-normal">compressing…</span>}</label>
+            <div className="flex gap-1.5">
+              <button type="button" className="btn-secondary text-xs py-2" onClick={() => cameraRef.current?.click()} disabled={compressing}>
+                <Camera size={14} /> Camera
+              </button>
+              <button type="button" className="btn-secondary text-xs py-2" onClick={() => galleryRef.current?.click()} disabled={compressing}>
+                <Image size={14} /> Gallery
+              </button>
+            </div>
+            <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoSelect} />
+            <input ref={galleryRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoSelect} />
           </div>
 
           {photos.length > 0 ? (
@@ -198,7 +237,7 @@ export default function NewDevice() {
               ))}
               <button
                 type="button"
-                onClick={() => fileRef.current?.click()}
+                onClick={() => galleryRef.current?.click()}
                 className="aspect-square rounded-lg border-2 border-dashed border-slate-600 flex flex-col items-center justify-center text-slate-500 hover:border-brand-500 hover:text-brand-400 transition-colors"
               >
                 <Image size={18} />
@@ -206,15 +245,24 @@ export default function NewDevice() {
               </button>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="w-full py-8 rounded-xl border-2 border-dashed border-slate-700 flex flex-col items-center gap-2 text-slate-500 hover:border-brand-500 hover:text-brand-400 transition-colors"
-            >
-              <Camera size={28} />
-              <span className="text-sm">Tap to take photos</span>
-              <span className="text-xs opacity-70">Photos save to your camera roll</span>
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => cameraRef.current?.click()}
+                className="py-7 rounded-xl border-2 border-dashed border-slate-700 flex flex-col items-center gap-2 text-slate-500 hover:border-brand-500 hover:text-brand-400 transition-colors"
+              >
+                <Camera size={24} />
+                <span className="text-sm font-medium">Camera</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => galleryRef.current?.click()}
+                className="py-7 rounded-xl border-2 border-dashed border-slate-700 flex flex-col items-center gap-2 text-slate-500 hover:border-brand-500 hover:text-brand-400 transition-colors"
+              >
+                <Image size={24} />
+                <span className="text-sm font-medium">Gallery</span>
+              </button>
+            </div>
           )}
         </div>
 

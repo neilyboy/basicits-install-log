@@ -10,8 +10,7 @@ const { db, UPLOADS_DIR, THUMBNAILS_DIR } = require('../db');
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOADS_DIR),
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
-    cb(null, `${uuidv4()}${ext}`);
+    cb(null, `${uuidv4()}.jpg`);
   },
 });
 
@@ -48,6 +47,19 @@ router.post('/', upload.array('photos', 20), async (req, res) => {
     const file = req.files[i];
     const thumbFilename = `thumb_${file.filename}`;
     const thumbPath = path.join(THUMBNAILS_DIR, thumbFilename);
+    const tmpFull = file.path + '.tmp';
+
+    try {
+      // Compress + auto-rotate full image (replaces original)
+      await sharp(file.path)
+        .rotate()                          // auto-rotate from EXIF
+        .resize(2048, 2048, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 85, progressive: true, mozjpeg: true })
+        .toFile(tmpFull);
+      fs.renameSync(tmpFull, file.path);
+    } catch (err) {
+      try { fs.unlinkSync(tmpFull); } catch {}
+    }
 
     try {
       await sharp(file.path)
